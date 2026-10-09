@@ -1,0 +1,7 @@
+# Codex 전용 선택 메타데이터(다른 에이전트는 무시한다). SKILL.md 가 본체이고 이 파일은 표시 이름·암시 호출 정책만 둔다.
+interface:
+  display_name: "ko-dub 한국어 더빙"
+  short_description: "영어 영상을 화자 구분 한국어 더빙 mp4로"
+  default_prompt: "이 영상을 한국어로 더빙해줘"
+policy:
+  allow_implicit_invocation: true

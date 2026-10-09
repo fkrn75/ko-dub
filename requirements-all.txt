@@ -1,0 +1,14 @@
+# ko-dub 통합 환경(Python 3.12) — 이 PC에서 따로 돌던 두 환경(전사·화자분리·번역 / TTS 합성)을 하나로 합친 목록
+# torch/torchaudio 는 setup.ps1 이 CUDA(cu128) 또는 CPU 인덱스로 먼저 설치한다(PyPI 의 Windows 휠은 CPU 빌드라 CUDA 가 안 된다).
+torch==2.8.0
+torchaudio==2.8.0
+numpy
+scipy
+soundfile==0.14.0
+faster-whisper==1.2.1
+av==17.1.0
+pyannote.audio==4.0.4
+transformers==4.57.6
+sentencepiece==0.2.1
+supertonic==1.3.1
+yt-dlp

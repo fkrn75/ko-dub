@@ -1,0 +1,16 @@
+# 작업 산출물·환경·캐시는 올리지 않는다
+work*/
+.venv/
+venv-all/
+tts_cache/
+__pycache__/
+*.pyc
+*.log
+*.bak*
+python_paths.json
+toolkit_path.txt
+CONTEXT-SAVE*.md
+*.mp4
+*.wav
+*.weba
+*.zip
