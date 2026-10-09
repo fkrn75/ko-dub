@@ -23,8 +23,8 @@ def load_terms(path=TERMS_PATH):
 
 def term_regex(key):
     """'shadow map' → 대소문자 무시, 단어 사이 공백/하이픈 허용, 마지막 단어 복수형(s/es) 허용, 영문 경계."""
-    words = key.strip().split()
-    body = r"[\s-]?".join(re.escape(w) for w in words)
+    words = re.split(r"[\s-]+", key.strip())  # 'post-process volume' 도 단어로 쪼갠다
+    body = r"[\s-]{0,3}".join(re.escape(w) for w in words)  # 전사의 'post -process', 'Production -ready' 같은 공백+하이픈도 허용
     return re.compile(r"(?<![A-Za-z0-9])" + body + r"(?:s|es)?(?![A-Za-z0-9])", re.I)
 
 
