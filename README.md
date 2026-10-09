@@ -12,7 +12,7 @@ Claude Code · Codex · Antigravity 에서 **스킬(`ko-dub`)** 로 쓰거나, �
 ```
 영상 ─ ffmpeg 16kHz ─ faster-whisper large-v3 (단어 타임스탬프)
      ─ pyannote community-1 (화자분리) ─ 화자별 음높이(F0)로 성별 판정
-     ─ 문장 단위 EN→KO 번역 (구글 / 막히면 로컬 NLLB-200 1.3B 자동 전환)
+     ─ 전문용어 고정(terms.json) ─ 문장 단위 EN→KO 번역 (구글 / 막히면 로컬 NLLB-200 1.3B 자동 전환)
      ─ 용어집(glossary.json)으로 영문 고유명사를 한글 발음으로 ─ 발음 변환(speak/, MarkdownRadio 의 toSpoken)
      ─ Supertonic v3 TTS (남 M1~M5 / 여 F1~F5, 문장 길이에 맞춰 1.05~1.45배속)
      ─ 원본 음성을 깔고 한국어가 나올 때 줄이는 덕킹 믹스 ─ 오디오 2트랙(한국어 기본 / 원본) + 워터마크
@@ -72,6 +72,20 @@ py -3 kodub.py mux --video D:\v\talk.mp4 --work D:\w\talk --out "D:\v\talk (KO d
 
 오래 걸리는 단계는 `--detach` 로 분리 실행하고 `status` / `wait` 로 확인합니다(종료코드 0 성공, 1 실패, 2 사용법·환경 오류, 3 실행 중).
 
+### 전문용어 고정
+
+번역기는 전문용어를 일반 단어로 옮기기 쉽습니다(shadow map → "그림자 지도"). 그래서 번역 **전에** 용어를 표식(TQA…)으로 잠갔다가
+번역 후 `terms.json` 의 한국어 용어로 되돌리고, 조사(을/를·은/는…)를 받침에 맞게 고칩니다. 기본 용어 100여 개가 들어 있고,
+영상마다 에이전트가 `terms` 로 후보를 보고 채웁니다(사용자가 할 일 없음).
+
+```powershell
+py -3 kodub.py terms D:\w\talk                                   # 전사에서 용어 후보 추출(횟수·예문)
+py -3 kodub.py glossary add --term "attenuation radius=감쇠 반경"   # 용어 추가
+```
+
+실측(Unreal MegaLights 강연 2,439문장, NLLB): shadow map "그림자 지도" 11/11 → "쉐도우 맵" 11/11,
+ray traced 4가지 오역 → "레이 트레이싱", material "물질·재료" → "머티리얼", scene "장면·현장" → "씬". 표식이 사라져 잠금 없이 재번역된 문장은 2개.
+
 ### 워터마크
 
 ```powershell
@@ -102,6 +116,7 @@ py -3 kodub.py mux ... --no-watermark                                    # 끄�
 | `skill/ko-dub/` | 에이전트 스킬 원본(`SKILL.md`, 런처, Codex 메타) |
 | `setup.ps1` · `check_env.py` · `install_skill.py` · `prefetch_models.py` | 설치·점검·모델 받기·스킬 설치 |
 | `step1~3_*.py` · `diarize_lite.py` · `scan_repeat.py` · `verify_ko.py` | 파이프라인 단계 |
+| `terms.json` · `terms_lock.py` | 전문용어 고정(번역 전 잠금·복원·조사 교정·후보 추출) |
 | `glossary.json` · `ko_fixes.json` | 영문→한글 발음 용어집, 번역 오역 교정 |
 | `speak/` · `spoken.mjs` | 한국어 TTS 발음 변환(MarkdownRadio) |
 | `export_kit.ps1` | 다른 PC로 옮길 zip 만들기 |

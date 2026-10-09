@@ -152,14 +152,19 @@ def translate_batch(lines):
     return res
 
 
+_NLLB = {}
+
+
 def nllb_translate(lines):
     """로컬 NLLB-200 1.3B(GPU fp16)로 번역 — 구글 429 시 대체 경로. MeetScribe venv(torch+transformers)에서 실행."""
     import torch
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
     name = "facebook/nllb-200-distilled-1.3B"
-    tok = AutoTokenizer.from_pretrained(name, src_lang="eng_Latn")
-    model = AutoModelForSeq2SeqLM.from_pretrained(name, torch_dtype=torch.float16).to("cuda").eval()
+    if "m" not in _NLLB:  # 재번역(표식 유실 문장) 때 모델을 다시 올리지 않게 캐시
+        _NLLB["t"] = AutoTokenizer.from_pretrained(name, src_lang="eng_Latn")
+        _NLLB["m"] = AutoModelForSeq2SeqLM.from_pretrained(name, torch_dtype=torch.float16).to("cuda").eval()
+    tok, model = _NLLB["t"], _NLLB["m"]
     kor = tok.convert_tokens_to_ids("kor_Hang")
     order = sorted(range(len(lines)), key=lambda i: len(lines[i]))
     out = [""] * len(lines)
@@ -176,12 +181,27 @@ def nllb_translate(lines):
     return out
 
 
-if os.environ.get("TRANSLATOR") == "nllb":
-    ko = nllb_translate([u["en"] for u in units])
-else:
-    ko = translate_batch([u["en"] for u in units])
-for u, k in zip(units, ko):
-    u["ko"] = (k or "").strip()
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import terms_lock  # noqa: E402
+
+translate = nllb_translate if os.environ.get("TRANSLATOR") == "nllb" else translate_batch
+compiled = terms_lock.compile_terms(terms_lock.load_terms()) if os.environ.get("TERM_LOCK", "1") == "1" else []
+locked = [terms_lock.lock(u["en"], compiled) for u in units]
+print(f"전문용어 고정: 용어집 {len(compiled)}개, 용어가 든 문장 {sum(bool(m) for _, m in locked)}개", flush=True)
+ko = translate([t for t, _ in locked])
+retry = []
+for i, (u, k, (_, m)) in enumerate(zip(units, ko, locked)):
+    k, lost = terms_lock.unlock((k or "").strip(), m) if m else ((k or "").strip(), [])
+    u["ko"] = k
+    if m:
+        u["terms"] = sorted(set(m.values()))
+    if lost:  # 번역기가 표식을 지웠다 → 그 문장만 잠금 없이 다시 번역(용어는 놓쳐도 문장 내용은 지킨다)
+        retry.append(i)
+if retry:
+    print(f"  표식이 사라진 {len(retry)}문장은 잠금 없이 다시 번역", flush=True)
+    for i, k in zip(retry, translate([units[i]["en"] for i in retry])):
+        units[i]["ko"] = (k or "").strip()
+        units[i]["term_lost"] = True
 
 (work / "units.json").write_text(json.dumps(units, ensure_ascii=False, indent=1), encoding="utf-8")
 print("units.json 저장 완료")

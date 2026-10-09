@@ -481,9 +481,32 @@ def cmd_report(a):
     return 0
 
 
+def cmd_terms(a):
+    """전사(asr.json)에서 전문용어 후보를 뽑아 보여 준다. 에이전트가 보고 업계 용어로 `glossary add --term` 한 뒤 translate 한다."""
+    import terms_lock
+
+    asr_path = Path(a.work) / "asr.json"
+    if not asr_path.exists():
+        die("asr.json 이 없습니다(step1 을 먼저 실행).")
+    asr = json.loads(asr_path.read_text(encoding="utf-8"))
+    text = " ".join(w["w"].strip() for seg in asr for w in seg.get("words", []))
+    terms = terms_lock.load_terms()
+    hit = [(k, v, len(rx.findall(text))) for k, rx, v in terms_lock.compile_terms(terms)]
+    hit = [h for h in hit if h[2]]
+    print(f"[이미 고정됨] 용어집 {len(terms)}개 중 이 영상에 나오는 {len(hit)}개: " + ", ".join(f"{k}→{v}({n})" for k, v, n in sorted(hit, key=lambda h: -h[2])[:40]))
+    rows = terms_lock.candidates(text, terms, limit=a.limit)
+    print(f"\n[후보] {len(rows)}개 (횟수 | 종류 | 영어 | 예문) — 전문용어·제품명만 골라 `glossary add --term \"영어=한국어\"` 로 추가. 일반 단어는 무시.")
+    low = text.lower()
+    for k, c, kind in rows:
+        i = low.find(k.lower())
+        ex = text[max(0, i - 40): i + len(k) + 40].replace("\n", " ") if i >= 0 else ""
+        print(f"{c:4d} | {kind:4s} | {k} | …{ex}…")
+    return 0
+
+
 def cmd_glossary(a):
-    """용어집(glossary.json: 영문→한글 발음) / 번역 교정(ko_fixes.json: 오역→바른 표현) 항목 추가·조회. JSON 을 직접 고칠 필요가 없다."""
-    path = HERE / ("ko_fixes.json" if a.fix else "glossary.json")
+    """용어집(glossary.json: 영문→한글 발음) / 번역 교정(ko_fixes.json: 오역→바른 표현) / 전문용어(terms.json: 번역 전 고정) 항목 추가·조회. JSON 을 직접 고칠 필요가 없다."""
+    path = HERE / ("ko_fixes.json" if a.fix else "terms.json" if a.term else "glossary.json")
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     if a.action == "show":
         for k, v in data.items():
@@ -498,6 +521,8 @@ def cmd_glossary(a):
             continue
         k, v = item.split("=", 1)
         k, v = k.strip(), v.strip()
+        if a.term:
+            k = k.lower()  # 전문용어 키는 소문자(매칭은 대소문자 무시)
         if not k or not v:
             continue
         old = data.get(k)
@@ -530,7 +555,8 @@ def main():
     p = P("synth", cmd_synth); p.add_argument("work"); p.add_argument("--female-f0"); p.add_argument("--detach", action="store_true")
     p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", required=True); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font")
     p = P("verify", cmd_verify); p.add_argument("work"); p.add_argument("--n", type=int, default=12); p.add_argument("--ids")
-    p = P("glossary", cmd_glossary); p.add_argument("action", choices=["add", "show"]); p.add_argument("items", nargs="*", help="add 일 때 '영문=한글 발음' 또는(--fix) '오역=바른 표현'"); p.add_argument("--fix", action="store_true", help="번역 교정 사전(ko_fixes.json) 대상"); p.add_argument("--grep")
+    p = P("glossary", cmd_glossary); p.add_argument("action", choices=["add", "show"]); p.add_argument("items", nargs="*", help="add 일 때 '영문=한글 발음' 또는(--fix) '오역=바른 표현'"); p.add_argument("--fix", action="store_true", help="번역 교정 사전(ko_fixes.json) 대상"); p.add_argument("--term", action="store_true", help="전문용어 고정 사전(terms.json, 번역 전 적용) 대상"); p.add_argument("--grep")
+    p = P("terms", cmd_terms); p.add_argument("work"); p.add_argument("--limit", type=int, default=120)
     p = P("report", cmd_report); p.add_argument("work")
     p = P("status", cmd_status); p.add_argument("work"); p.add_argument("--json", action="store_true")
     p = P("wait", cmd_wait); p.add_argument("work"); p.add_argument("name"); p.add_argument("--timeout", type=int, default=540)

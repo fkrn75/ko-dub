@@ -61,6 +61,9 @@ def main():
 
     bad = suspects(units)
     print(f"총 {len(units)}문장, 의심 {len(bad)}개")
+    n_t, lost = sum(1 for u in units if u.get("terms")), [u["id"] for u in units if u.get("term_lost")]
+    if n_t or lost:
+        print(f"전문용어 고정: {n_t}문장 적용" + (f", 번역기가 표식을 지워 잠금 없이 재번역한 문장 {len(lost)}개(용어가 원래 오역대로일 수 있음): {lost[:20]}" if lost else ""))
     for i, why in bad:
         u = units[i]
         print(f"[{i}] {u['start'] / 60:.1f}분 {u['end'] - u['start']:.1f}s ko={len(u['ko'])}자 ({why})")
