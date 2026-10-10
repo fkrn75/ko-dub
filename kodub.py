@@ -264,7 +264,7 @@ def ffprobe_json(path):
     ff = check_env.find_exe("ffprobe")
     if not ff:
         die("ffprobe 를 찾을 수 없습니다(ffmpeg 설치 필요).")
-    p = subprocess.run([ff, "-v", "error", "-show_entries", "format=duration:stream=index,codec_type,codec_name,width,height,channels", "-of", "json", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run([ff, "-v", "error", "-show_entries", "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,channels,bit_rate", "-of", "json", str(path)], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         die(f"ffprobe 실패: {p.stderr.strip()[:200]}")
     return json.loads(p.stdout)
@@ -379,29 +379,115 @@ def wm_escape(s):
     return s.replace("\\", "").replace("'", "").replace("%", "").replace(":", " -").replace(",", "，")
 
 
-def wm_filter(ff, a, duration):
-    """워터마크 drawtext 필터 문자열. 시작 직후 한 번, 이후 a.wm_every 초마다 a.wm_dur 초씩 우상단에 반투명으로 띄운다."""
+# 워터마크 위치별 drawtext 좌표(tw/th=글자 폭/높이)
+WM_POS = {
+    "tr": ("w-tw-w/40", "h/25"), "tl": ("w/40", "h/25"),
+    "br": ("w-tw-w/40", "h-th-h/25"), "bl": ("w/40", "h-th-h/25"),
+    "tc": ("(w-tw)/2", "h/25"), "bc": ("(w-tw)/2", "h-th-h/25"),
+}
+
+
+def wm_windows(a, duration):
+    """워터마크가 보이는 구간 목록: 시작 직후 한 번, 이후 a.wm_every 초마다 a.wm_dur 초씩."""
+    start = min(20.0, duration * 0.2)  # 짧은 영상에서도 한 번은 보이게
+    out, t = [], start
+    while t < duration:
+        out.append((round(t, 1), round(min(duration, t + a.wm_dur), 1)))
+        t += a.wm_every
+    return out
+
+
+def corner_scores(ff, video, t):
+    """t초 프레임을 작게(160x90 흑백) 뽑아 네 모서리의 '워터마크 읽기 방해도'를 잰다.
+    = 밝기 변화(글자·로고·UI 일수록 큼) + 밝은 배경 벌점(흰 글자가 묻힘). 표준 라이브러리만 사용."""
+    W, H = 160, 90
+    rw, rh = int(W * 0.45), int(H * 0.10)  # 워터마크 글자 영역 근사(폭 45%, 높이 10%)
+    mx, my = W // 40 + 1, H // 25 + 1
+    boxes = {"tr": (W - rw - mx, my), "tl": (mx, my), "br": (W - rw - mx, H - rh - my), "bl": (mx, H - rh - my)}
+    p = subprocess.run([ff, "-v", "error", "-ss", f"{t:.1f}", "-i", str(video), "-frames:v", "1", "-vf", f"scale={W}:{H},format=gray",
+                        "-f", "rawvideo", "-"], capture_output=True)
+    px = p.stdout
+    if len(px) < W * H:
+        return None
+    sc = {}
+    for k, (x0, y0) in boxes.items():
+        grad = lum = 0
+        for y in range(y0, y0 + rh):
+            row = y * W
+            for x in range(x0, x0 + rw - 1):
+                v = px[row + x]
+                grad += abs(px[row + x + 1] - v) + abs(px[row + W + x] - v)
+                lum += v
+        n = rh * (rw - 1)
+        sc[k] = grad / n + max(0.0, lum / n - 150) * 0.2
+    return sc
+
+
+def wm_plan(ff, a, duration):
+    """구간별 위치 계획 [(시작, 끝, 위치)]. auto 면 구간마다 그 시점 화면(앞·뒤 2장)을 보고 방해도가 가장 낮은 모서리를 고른다
+    — 강연 영상은 화면 구성이 계속 바뀌어(전체화면 에디터 ↔ 화면공유+웹캠) 영상 전체에 한 모서리를 고정하면 어딘가에서 겹친다."""
+    wins = wm_windows(a, duration)
+    if a.wm_pos != "auto":
+        return [(s, e, a.wm_pos) for s, e in wins]
+    plan, prev = [], "tr"
+    for s, e in wins:
+        tot = {}
+        for t in (s + 0.5, max(s + 0.5, e - 0.5)):
+            sc = corner_scores(ff, a.video, t)
+            for k, v in (sc or {}).items():
+                tot[k] = tot.get(k, 0) + v
+        best = min(tot, key=tot.get) if tot else prev
+        plan.append((s, e, best))
+        prev = best
+    return plan
+
+
+def wm_filter(ff, a, plan):
+    """워터마크 drawtext 필터 체인. 위치별로 drawtext 하나씩, 그 위치에 배정된 구간에서만 켠다(enable)."""
     filters = subprocess.run([ff, "-hide_banner", "-filters"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     if " drawtext " not in filters:
         die("이 ffmpeg 에는 drawtext 필터(libfreetype)가 없습니다. 전체 빌드 ffmpeg 를 쓰거나 --no-watermark 로 워터마크 없이 합치세요.")
     font = a.wm_font or next((f for f in WM_FONTS if Path(f).exists()), None)
     if not font or not Path(font).exists():
         die("한글 글꼴을 찾지 못했습니다. --wm-font <글꼴파일.ttf> 를 지정하거나 --no-watermark 를 쓰세요.")
-    start = min(20.0, duration * 0.2)  # 짧은 영상에서도 한 번은 보이게
-    en = f"gte(t,{start:.1f})*lt(mod(t-{start:.1f},{a.wm_every}),{a.wm_dur})"
     font_arg = font.replace("\\", "/").replace(":", "\\:")
-    return (f"drawtext=fontfile='{font_arg}':text='{wm_escape(a.watermark)}':fontsize=h/34:fontcolor=white@0.55:"
-            f"shadowcolor=black@0.5:shadowx=1:shadowy=1:x=w-tw-w/40:y=h/25:enable='{en}'")
+    chain = []
+    for pos in WM_POS:
+        spans = [(s, e) for s, e, p in plan if p == pos]
+        if not spans:
+            continue
+        en = "+".join(f"between(t,{s},{e})" for s, e in spans)
+        x, y = WM_POS[pos]
+        chain.append(f"drawtext=fontfile='{font_arg}':text='{wm_escape(a.watermark)}':fontsize=h/34:fontcolor=white@0.55:"
+                     f"shadowcolor=black@0.5:shadowx=1:shadowy=1:x={x}:y={y}:enable='{en}'")
+    return ",".join(chain) or "null"
 
 
-def pick_encoder(ff):
-    """워터마크는 영상을 다시 인코딩해야 한다. NVENC 가 실제로 되면 쓰고, 아니면 libx264."""
+def source_video_kbps(video):
+    """원본 영상 스트림의 비트레이트(kbps). 스트림 값이 없으면(webm 등) 전체 비트레이트에서 오디오 몫을 뺀 근사치."""
+    j = ffprobe_json(video)
+    v = next((s for s in j["streams"] if s["codec_type"] == "video"), {})
+    if v.get("bit_rate"):
+        return int(v["bit_rate"]) // 1000
+    total = int(j["format"].get("bit_rate") or 0) // 1000
+    aud = sum(int(s.get("bit_rate") or 128000) // 1000 for s in j["streams"] if s["codec_type"] == "audio")
+    return max(0, total - aud) or None
+
+
+def pick_encoder(ff, kbps=None):
+    """워터마크는 영상을 다시 인코딩해야 한다. NVENC 가 실제로 되면 쓰고, 아니면 libx264.
+    kbps(원본 비트레이트)를 주면 그 수준으로 맞춘다 — 화질 기준(cq)만 두면 원본의 2배 넘게 커졌다(MegaLights 실측 0.77→1.80Mbps)."""
+    rate = []
+    if kbps:
+        b = int(kbps * 1.1)  # 워터마크·재인코딩 손실을 감안해 10% 여유
+        rate = ["-b:v", f"{b}k", "-maxrate", f"{int(b * 1.5)}k", "-bufsize", f"{b * 2}k"]
     enc = subprocess.run([ff, "-hide_banner", "-encoders"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     if "h264_nvenc" in enc:
         t = subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x144:d=0.2", "-c:v", "h264_nvenc", "-f", "null", "-"], capture_output=True)
         if t.returncode == 0:
-            return ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "21", "-b:v", "0", "-pix_fmt", "yuv420p"]
-    return ["-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p"]
+            q = ["-rc", "vbr", "-multipass", "qres"] + rate if rate else ["-cq", "21", "-b:v", "0"]
+            return ["-c:v", "h264_nvenc", "-preset", "p5"] + q + ["-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-preset", "fast"] + (rate or ["-crf", "20"]) + ["-pix_fmt", "yuv420p"]
 
 
 def cmd_mux(a):
@@ -424,9 +510,18 @@ def cmd_mux(a):
         vmap, vcodec = "0:v:0", ["-c:v", "copy"]  # 영상은 그대로 복사(빠름)
     else:
         dur = float(ffprobe_json(a.video)["format"]["duration"])
-        flt = f"[0:v]{wm_filter(ff, a, dur)}[v];" + flt
-        vmap, vcodec = "[v]", pick_encoder(ff)
-        print(f"[워터마크] '{a.watermark}' — {a.wm_every}초마다 {a.wm_dur}초씩 우상단 표시, 영상 재인코딩({vcodec[1]})")
+        plan = wm_plan(ff, a, dur)
+        flt = f"[0:v]{wm_filter(ff, a, plan)}[v];" + flt
+        kbps = a.video_kbps or source_video_kbps(a.video)
+        vmap, vcodec = "[v]", pick_encoder(ff, kbps)
+        names = {"tr": "우상단", "tl": "좌상단", "br": "우하단", "bl": "좌하단", "tc": "상단 가운데", "bc": "하단 가운데"}
+        cnt = {}
+        for _, _, p in plan:
+            cnt[names[p]] = cnt.get(names[p], 0) + 1
+        print(f"[워터마크] '{a.watermark}' — {a.wm_every}초마다 {a.wm_dur}초씩 {len(plan)}회, 위치 "
+              + ("자동(구간마다 화면이 가장 단순한 모서리): " if a.wm_pos == "auto" else "") + ", ".join(f"{k} {v}회" for k, v in cnt.items())
+              + f" | 영상 재인코딩({vcodec[1]}, " + (f"원본 수준 {kbps}kbps)" if kbps else "화질 기준)"))
+        (work / "watermark_plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")  # 확인용 기록
     cmd += ["-filter_complex", flt, "-map", vmap, "-map", "[mix]", "-map", f"{orig}:a:0"] + vcodec + ["-c:a:0", "aac", "-b:a:0", "192k"]
     cmd += ["-c:a:1", "aac", "-b:a:1", "128k"] if a.orig_audio else ["-c:a:1", "copy"]
     cmd += ["-metadata:s:a:0", "language=kor", "-metadata:s:a:1", "language=eng", "-disposition:a:0", "default", "-disposition:a:1", "0", "-movflags", "+faststart", str(tmp)]
@@ -553,7 +648,7 @@ def main():
     p = P("scan", cmd_scan); p.add_argument("work"); p.add_argument("--apply")
     p = P("dry", cmd_dry); p.add_argument("work"); p.add_argument("--female-f0")
     p = P("synth", cmd_synth); p.add_argument("work"); p.add_argument("--female-f0"); p.add_argument("--detach", action="store_true")
-    p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", required=True); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font")
+    p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", required=True); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font"); p.add_argument("--wm-pos", choices=["auto"] + list(WM_POS), default="auto", help="워터마크 위치(auto=화면이 가장 단순한 모서리 자동 선택)"); p.add_argument("--video-kbps", type=int, help="재인코딩 영상 비트레이트(기본: 원본과 같은 수준)")
     p = P("verify", cmd_verify); p.add_argument("work"); p.add_argument("--n", type=int, default=12); p.add_argument("--ids")
     p = P("glossary", cmd_glossary); p.add_argument("action", choices=["add", "show"]); p.add_argument("items", nargs="*", help="add 일 때 '영문=한글 발음' 또는(--fix) '오역=바른 표현'"); p.add_argument("--fix", action="store_true", help="번역 교정 사전(ko_fixes.json) 대상"); p.add_argument("--term", action="store_true", help="전문용어 고정 사전(terms.json, 번역 전 적용) 대상"); p.add_argument("--grep")
     p = P("terms", cmd_terms); p.add_argument("work"); p.add_argument("--limit", type=int, default=120)
