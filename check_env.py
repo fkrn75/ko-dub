@@ -201,8 +201,26 @@ def main():
     yc = ytdlp_command()
     add("권장", "yt-dlp (유튜브 URL 다운로드용)", "OK" if yc else "WARN", " ".join(yc) if yc else "없음", "" if yc else "setup.ps1 (venv-all 에 설치) 또는 py -3 -m pip install yt-dlp")
 
+    # 2.5) 다른 더빙 스킬과의 충돌 — 에이전트가 ko-dub 대신 예전 dub.py(edge-tts·deep-translator) 계열 스킬을 고르는 일이 실제로 있었다
+    others = []
+    for root in [Path.home() / ".codex" / "skills", Path.home() / ".agents" / "skills", Path.home() / ".claude" / "skills", Path.home() / ".gemini" / "config" / "skills", Path.home() / ".gemini" / "antigravity" / "skills"]:
+        if not root.is_dir():
+            continue
+        for sk in root.iterdir():
+            md = sk / "SKILL.md"
+            if sk.name == "ko-dub" or not md.exists():
+                continue
+            try:
+                txt = md.read_text(encoding="utf-8-sig", errors="replace")[:4000].lower()
+            except OSError:
+                continue
+            if any(k in txt for k in ("더빙", "dubbing", " dub", "edge-tts", "edge_tts", "argos")):
+                others.append(str(sk))
+    add("권장", "다른 더빙 스킬 없음(충돌 방지)", "OK" if not others else "WARN", "없음" if not others else ", ".join(others),
+        "" if not others else "에이전트가 이 스킬을 대신 고를 수 있습니다(edge-tts·Argos 등 다른 방식으로 더빙). 쓰지 않는 스킬이면 폴더 이름을 바꾸거나 다른 곳으로 옮겨 비활성화하고, 요청할 때 `$ko-dub`처럼 스킬 이름을 명시하세요")
+
     # 3) 도구 파일
-    need = ["step1_asr_diarize.py", "step2_units_translate.py", "step3_tts_mix.py", "step4_mux.ps1", "diarize_lite.py", "spoken.mjs", "glossary.json", "ko_fixes.json", "scan_repeat.py", "speak/speak.ts", "speak/speak.datetime.ts", "speak/speak.misc.ts", "speak/speak.units.ts"]
+    need =["step1_asr_diarize.py", "step2_units_translate.py", "step3_tts_mix.py", "step4_mux.ps1", "diarize_lite.py", "spoken.mjs", "glossary.json", "ko_fixes.json", "scan_repeat.py", "speak/speak.ts", "speak/speak.datetime.ts", "speak/speak.misc.ts", "speak/speak.units.ts"]
     lost = [f for f in need if not (HERE / f).exists()]
     add("필수", "도구 파일", "OK" if not lost else "FAIL", "전부 있음" if not lost else "없음: " + ", ".join(lost), "" if not lost else "도구 폴더를 통째로 다시 복사")
 
