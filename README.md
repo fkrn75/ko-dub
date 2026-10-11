@@ -41,6 +41,11 @@ powershell -ExecutionPolicy Bypass -File setup.ps1 -InstallMissing -DownloadMode
 
 `-InstallSkill` 은 설치된 에이전트 폴더(아래)에 스킬 복사본을 만들고, 복사본마다 이 폴더의 위치를 기록합니다.
 
+모델은 `py -3 kodub.py models` 로 미리 받습니다(안 받아도 첫 실행 때 자동). TTS 모델 **Supertonic v3**(Hugging Face `Supertone/supertonic-3`, 약 380MB)를
+이미 다른 곳에 받아 두었다면 자동으로 찾아 재사용하고(기본 캐시·HF 캐시·홈 폴더 검색), 직접 지정하려면 `py -3 kodub.py models --supertonic-dir "<onnx/·voice_styles/가 있는 폴더>"` 입니다.
+
+> ⚠️ 에이전트가 환경이 안 된다고 edge-tts 같은 다른 TTS로 대신 만들지 않도록 스킬·`AGENTS.md`에 금지 규칙을 넣었습니다. 그래도 화자 구분 없는 결과가 나오면 `py -3 kodub.py check` 결과를 확인하세요.
+
 | 에이전트 | 스킬 위치 | 호출 |
 |---|---|---|
 | Claude Code | `~/.claude/skills/ko-dub` | `/ko-dub` |

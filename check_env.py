@@ -192,11 +192,11 @@ def main():
             miss = [m for m in TTS_MODULES if not tp.get(m)]
             add("필수", "tts 파이썬 패키지", "OK" if not miss else "FAIL", ("전부 설치됨 (supertonic %s)" % tp.get("supertonic")) if not miss else "없음: " + ", ".join(miss), "" if not miss else "setup.ps1")
             if not miss:
-                code = "from supertonic.loader import get_cache_dir; from pathlib import Path; d=Path(get_cache_dir('supertonic-3')); print('@@', d, len(list(d.rglob('*.onnx'))) if d.exists() else 0)"
-                rc, out = run([tts_py, "-c", code], timeout=60)
-                m = re.search(r"@@ (.+) (\d+)", out)
-                n = int(m.group(2)) if m else 0
-                add("정보", "Supertonic v3 모델 캐시", "OK" if n >= 4 else "WARN", f"{n}개 onnx" if n else "아직 없음", "" if n >= 4 else "첫 합성 때 약 380MB 자동 다운로드 (미리 받기: setup.ps1 -DownloadModels)")
+                import supertonic_find  # 등록 경로·환경변수·기본 캐시·HF 캐시에서 이미 받아 둔 v3 를 찾는다(검색 없이 빠르게)
+
+                md = supertonic_find.find()
+                add("정보", "Supertonic v3 모델", "OK" if md else "WARN", f"{md} ({supertonic_find.check(md)[1]})" if md else "아직 없음",
+                    "" if md else "첫 합성 때 약 380MB 자동 다운로드. 다른 곳에 받아 둔 게 있으면 `kodub models` 가 찾아 등록(또는 --supertonic-dir <폴더>)")
 
     yc = ytdlp_command()
     add("권장", "yt-dlp (유튜브 URL 다운로드용)", "OK" if yc else "WARN", " ".join(yc) if yc else "없음", "" if yc else "setup.ps1 (venv-all 에 설치) 또는 py -3 -m pip install yt-dlp")

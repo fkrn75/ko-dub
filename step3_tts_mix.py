@@ -96,7 +96,11 @@ if os.environ.get("DRY"):  # 발음 텍스트만 만들고 종료(점검용)
 # ── TTS ──
 from supertonic import TTS
 
-tts = TTS(model="supertonic-3", auto_download=True)
+import supertonic_find  # noqa: E402  이미 받아 둔 Supertonic v3 가 있으면 그 폴더를 쓴다(재다운로드 방지)
+
+_md = supertonic_find.find()
+print(f"Supertonic v3 모델: {_md}" if _md else "Supertonic v3 모델: 기본 캐시(없으면 약 380MB 자동 다운로드)", flush=True)
+tts = TTS(model="supertonic-3", model_dir=_md, auto_download=True)
 styles = {v: tts.get_voice_style(v) for v in set(voices.values())}
 
 

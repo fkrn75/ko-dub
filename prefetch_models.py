@@ -31,10 +31,27 @@ def step(name, fn):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--nllb", action="store_true", help="NLLB 번역 모델(약 5GB)도 받는다")
+    ap.add_argument("--only", choices=["all", "tts", "asr"], default="all", help="tts=Supertonic 만, asr=Whisper·pyannote(·NLLB)만 (환경이 둘로 나뉜 PC용)")
+    ap.add_argument("--supertonic-dir", help="이미 받아 둔 Supertonic v3 폴더(onnx/·voice_styles/ 가 있는 곳)를 등록해 다운로드 없이 사용")
     a = ap.parse_args()
     ok = []
 
     def tts():
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import supertonic_find
+
+        if a.supertonic_dir:  # 사용자가 지정한 폴더
+            ok, why = supertonic_find.check(a.supertonic_dir)
+            if not ok:
+                raise RuntimeError(f"{a.supertonic_dir}: {why}")
+            supertonic_find.register(a.supertonic_dir)
+            print(f"  지정한 폴더 등록: {a.supertonic_dir} ({why}) — 다운로드하지 않음", flush=True)
+            return
+        found = supertonic_find.find(do_scan=True)  # 등록 경로·캐시·HF 캐시·홈 폴더 얕은 검색
+        if found:
+            supertonic_find.register(found)
+            print(f"  이미 있음: {found} ({supertonic_find.check(found)[1]}) — 등록하고 다운로드하지 않음", flush=True)
+            return
         from supertonic import TTS
 
         TTS(model="supertonic-3", auto_download=True)
@@ -59,11 +76,13 @@ def main():
 
         snapshot_download("facebook/nllb-200-distilled-1.3B", allow_patterns=["*.json", "*.model", "pytorch_model.bin", "*.txt", "*.safetensors"])
 
-    ok.append(step("Supertonic v3 (TTS)", tts))
-    ok.append(step("Whisper large-v3 (전사)", whisper))
-    ok.append(step("pyannote community-1 (화자분리)", pyannote))
-    if a.nllb:
-        ok.append(step("NLLB 1.3B (번역, 구글 대체)", nllb))
+    if a.only in ("all", "tts"):
+        ok.append(step("Supertonic v3 (TTS, Hugging Face Supertone/supertonic-3 → ~/.cache)", tts))
+    if a.only in ("all", "asr"):
+        ok.append(step("Whisper large-v3 (전사)", whisper))
+        ok.append(step("pyannote community-1 (화자분리)", pyannote))
+        if a.nllb:
+            ok.append(step("NLLB 1.3B (번역, 구글 대체)", nllb))
     print("모두 준비됨" if all(ok) else "일부 실패 — 위 [실패] 항목을 확인하세요")
     return 0 if all(ok) else 1
 

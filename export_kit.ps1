@@ -11,7 +11,7 @@ $tk = Join-Path $stage "toolkit"
 New-Item -ItemType Directory -Force $tk | Out-Null
 
 # 도구 폴더: 작업폴더(work*), 가상환경, 캐시, 파이썬 캐시, 검증용 임시 파일, 이 PC 전용 경로 파일은 제외
-& robocopy $Root $tk /E /NFL /NDL /NJH /NJS /NP /XD "work" "work_*" ".venv" "venv-all" "__pycache__" "tts_cache" /XF "python_paths.json" "probe_*.wav" "*.log" "*.bak_before_fix" "tts_probe.py" "glossary_add_astra.py" | Out-Null
+& robocopy $Root $tk /E /NFL /NDL /NJH /NJS /NP /XD "work" "work_*" ".venv" "venv-all" "__pycache__" "tts_cache" /XF "python_paths.json" "model_paths.json" "probe_*.wav" "*.log" "*.bak_before_fix" "tts_probe.py" "glossary_add_astra.py" | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy 실패($LASTEXITCODE)" }
 
 if (Test-Path $Out) { Remove-Item $Out -Force }

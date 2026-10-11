@@ -576,6 +576,20 @@ def cmd_report(a):
     return 0
 
 
+def cmd_models(a):
+    """모델 미리 받기: Supertonic v3(TTS, 약 380MB) · Whisper large-v3(약 3GB) · pyannote community-1 · (선택) NLLB(약 5GB).
+    안 받아도 각 단계 첫 실행 때 자동으로 받아지지만, 더빙 도중 멈추지 않게 미리 받는다."""
+    script = str(HERE / "prefetch_models.py")
+    tts, gpu = interp("tts"), interp("gpu")
+    extra = ["--nllb"] if a.nllb else []
+    sdir = ["--supertonic-dir", a.supertonic_dir] if a.supertonic_dir else []
+    if os.path.normcase(tts) == os.path.normcase(gpu):
+        return subprocess.call([tts, "-u", script] + extra + sdir, env=base_env())
+    rc1 = subprocess.call([tts, "-u", script, "--only", "tts"] + sdir, env=base_env())  # TTS 환경과 전사 환경이 나뉜 PC
+    rc2 = subprocess.call([gpu, "-u", script, "--only", "asr"] + extra, env=base_env())
+    return rc1 or rc2
+
+
 def cmd_terms(a):
     """전사(asr.json)에서 전문용어 후보를 뽑아 보여 준다. 에이전트가 보고 업계 용어로 `glossary add --term` 한 뒤 translate 한다."""
     import terms_lock
@@ -651,6 +665,7 @@ def main():
     p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", required=True); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font"); p.add_argument("--wm-pos", choices=["auto"] + list(WM_POS), default="auto", help="워터마크 위치(auto=화면이 가장 단순한 모서리 자동 선택)"); p.add_argument("--video-kbps", type=int, help="재인코딩 영상 비트레이트(기본: 원본과 같은 수준)")
     p = P("verify", cmd_verify); p.add_argument("work"); p.add_argument("--n", type=int, default=12); p.add_argument("--ids")
     p = P("glossary", cmd_glossary); p.add_argument("action", choices=["add", "show"]); p.add_argument("items", nargs="*", help="add 일 때 '영문=한글 발음' 또는(--fix) '오역=바른 표현'"); p.add_argument("--fix", action="store_true", help="번역 교정 사전(ko_fixes.json) 대상"); p.add_argument("--term", action="store_true", help="전문용어 고정 사전(terms.json, 번역 전 적용) 대상"); p.add_argument("--grep")
+    p = P("models", cmd_models); p.add_argument("--nllb", action="store_true", help="NLLB 번역 모델(약 5GB)도 받는다"); p.add_argument("--supertonic-dir", help="이미 받아 둔 Supertonic v3 폴더를 등록(다운로드 생략)")
     p = P("terms", cmd_terms); p.add_argument("work"); p.add_argument("--limit", type=int, default=120)
     p = P("report", cmd_report); p.add_argument("work")
     p = P("status", cmd_status); p.add_argument("work"); p.add_argument("--json", action="store_true")

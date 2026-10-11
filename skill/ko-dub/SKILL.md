@@ -9,6 +9,14 @@ description: "영어 영상(유튜브 URL, 로컬 mp4, 영상+별도 오디오 �
 
 - 결과: `<원본이름> (KO dub).mp4` — 영상 1개, 오디오 1=한국어 더빙(원본을 작게 깔고 한국어가 나올 때 더 줄임, 기본 트랙), 2=원본 영어. **기본으로 "개인 학습용 · 재배포 금지" 워터마크가 화면 모서리(구간마다 가장 덜 붐비는 곳)에 5분마다 8초씩 흐리게 뜬다**(8단계).
 - **용도 제한**: 개인 학습용이다. 원본 영상의 저작권은 원저작자에게 있으니, 만든 결과를 공개 업로드·재배포하지 않는다고 사용자에게 한 번 알린다. 사용자가 워터마크를 빼 달라고 분명히 요청했을 때만 `--no-watermark`를 쓴다.
+## 반드시 지킬 것 — 대체 구현 금지
+
+사용자가 이 스킬을 쓰는 이유는 **Supertonic v3 음성**, **화자분리**, **화자별 남녀 음성 배정** 세 가지다. 이 중 하나라도 빠진 결과물은 요청을 만족하지 못한 것이므로, 아래 단계의 `KODUB` 명령으로만 만든다.
+- **다른 TTS를 쓰지 않는다**: edge-tts, gTTS, pyttsx3, OpenAI·Azure·Google TTS, Windows 음성 등으로 바꾸지 않는다. "일단 결과를 내려고" 더 쉬운 도구로 우회하는 것이 가장 흔한 실패다(실제로 다른 PC에서 edge-tts로 화자 구분 없이 만든 일이 있었다).
+- **화자분리(pyannote)와 성별 판정(F0)을 건너뛰지 않는다.** 한 목소리로 전부 읽는 더빙은 실패다.
+- **막히면 멈추고 보고한다.** 도구 폴더가 없음, `check`의 `[없음] 필수`, Hugging Face 토큰 없음, 패키지·모델 설치 실패 같은 상황에서는 직접 대체 파이프라인을 짜지 말고, 무엇이 없는지와 해결 명령(아래 0단계)을 사용자에게 알린 뒤 허락을 받아 설치하고 이어서 진행한다.
+- 사용자가 명시적으로 다른 방식을 요청한 경우에만 예외다.
+
 - 영상 길이를 L이라 하면 대략: 전사+화자분리 ≈ 0.2L(GPU), 번역 수 분~15분, 합성 ≈ 0.4~0.5L(CPU), 합치기 5~15분(워터마크로 영상을 다시 인코딩; `--no-watermark`는 복사라 1분 이내). 166분 영상이 총 2시간 15분 걸렸다. 1시간이 넘는 영상은 시작 전에 예상 시간을 사용자에게 알린다. NVIDIA GPU가 없으면 몇 배~수십 배 느리다.
 
 ## 명령 실행법 (모든 에이전트 공통)
@@ -30,8 +38,24 @@ py -3 "<이 스킬 폴더>/scripts/kodub.py"
 ## 단계
 
 ### 0. 환경 점검 (영상을 받기 전에 먼저)
-`KODUB check` (처음 쓰는 PC면 `KODUB check --net`: Hugging Face 접속과 약관 동의까지 확인). `[없음] 필수`가 하나라도 있으면 더빙을 시작하지 말고 부족한 것을 사용자에게 알린 뒤 설치한다.
-- 설치: 도구 폴더의 `setup.ps1`을 실행한다 — `powershell -ExecutionPolicy Bypass -File "<도구 폴더>/setup.ps1"`. 인자 없이 실행하면 점검만 하고 부족한 것을 알려 준다. `-InstallMissing`은 Python 3.12·ffmpeg·node를 winget으로 설치하고 통합 환경(`venv-all`: torch CUDA 또는 CPU + 패키지)을 만든다(수 GB, 10~30분). `-DownloadModels [-WithNLLB]`로 모델을 미리 받을 수 있고, 안 받아도 첫 실행 때 자동으로 받아진다(Supertonic 약 380MB, Whisper 약 3GB, NLLB 약 5GB). **프로그램 설치와 대용량 다운로드는 사용자에게 먼저 알리고 허락을 받은 뒤** 실행한다.
+**0-1. 도구 폴더가 있는지.** `KODUB check`가 "ko-dub 도구 폴더를 찾지 못했습니다"로 끝나면 이 PC에는 스킬 문서만 있고 도구가 없는 것이다. 사용자 허락을 받아 공개 저장소를 홈 폴더에 받는다(런처의 기본 위치가 `~/ko-dub`):
+```
+git clone https://github.com/fkrn75/ko-dub "<홈 폴더>/ko-dub"
+```
+git이 없으면 https://github.com/fkrn75/ko-dub 에서 ZIP으로 받아 `<홈 폴더>/ko-dub`에 푼다. 다른 위치에 두었다면 환경변수 `KO_DUB_HOME`을 그 폴더로 설정한다.
+
+**0-2. 환경 점검.** `KODUB check` (처음 쓰는 PC면 `KODUB check --net`: Hugging Face 접속과 약관 동의까지 확인). `[없음] 필수`가 하나라도 있으면 더빙을 시작하지 말고(위 "대체 구현 금지") 부족한 것을 사용자에게 알린 뒤 설치한다.
+- 설치: 도구 폴더의 `setup.ps1`을 실행한다 — `powershell -ExecutionPolicy Bypass -File "<도구 폴더>/setup.ps1"`. 인자 없이 실행하면 점검만 하고 부족한 것을 알려 준다. `-InstallMissing`은 Python 3.12·ffmpeg·node를 winget으로 설치하고 통합 환경(`venv-all`: torch CUDA 또는 CPU + Supertonic·faster-whisper·pyannote 등 패키지)을 만든다(수 GB, 10~30분). **프로그램 설치와 대용량 다운로드는 사용자에게 먼저 알리고 허락을 받은 뒤** 실행한다.
+
+**0-3. 모델 받기.** `KODUB models` (NLLB까지 받으려면 `KODUB models --nllb`). 안 받아도 각 단계 첫 실행 때 자동으로 받아지지만, 긴 영상 도중에 다운로드로 멈추지 않게 처음 쓰는 PC에서는 미리 받는다. `--detach`가 없으니 시간 제한이 짧은 에이전트는 백그라운드 기능으로 실행한다.
+| 모델 | 용도 | 출처(Hugging Face) | 크기 | 저장 위치 |
+|---|---|---|---|---|
+| Supertonic v3 | **한국어 TTS** | `Supertone/supertonic-3` (pip `supertonic==1.3.1`이 받음) | 약 380MB | `~/.cache/` 아래(`SUPERTONIC_CACHE_DIR`로 변경) |
+| faster-whisper large-v3 | 영어 전사 | `Systran/faster-whisper-large-v3` | 약 3GB | HF 캐시(`HF_HOME`) |
+| pyannote community-1 | 화자분리 | `pyannote/speaker-diarization-community-1` (토큰·약관 동의 필요) | 수백 MB | HF 캐시 |
+| NLLB-200 1.3B (선택) | 구글 번역이 막혔을 때 | `facebook/nllb-200-distilled-1.3B` | 약 5GB | HF 캐시 |
+`[실패]`가 나오면 위 "막히면 멈추고 보고한다"를 따른다(pyannote 실패는 대개 토큰·약관 문제).
+- **이미 받아 둔 Supertonic v3 재사용**: `KODUB models`는 받기 전에 등록 경로 → `KO_DUB_SUPERTONIC_DIR` → `SUPERTONIC_CACHE_DIR` → `~/.cache/supertonic3` → Hugging Face 캐시 → 홈 폴더·다른 드라이브 얕은 검색(최대 20초) 순으로 기존 사본을 찾고, 찾으면 등록만 하고 다운로드하지 않는다. 다른 앱이나 git clone으로 받아 둔 폴더(안에 `onnx/`, `voice_styles/`가 있는 곳)를 직접 지정하려면 `KODUB models --supertonic-dir "<폴더>"`. 유효성은 onnx 4종·설정 2종·음성 10종(M1~M5, F1~F5)과 `config.json`의 "Supertonic 3" 표기로 확인한다. 등록 결과는 도구 폴더의 `model_paths.json`(PC 전용)에 남고, 합성 로그 첫 줄 `Supertonic v3 모델: <경로>`로 실제로 쓴 폴더를 확인할 수 있다.
 - **자동으로 안 되는 것**: Hugging Face 토큰(화자분리용)과 pyannote 약관 동의는 사용자가 직접 한다. https://huggingface.co/settings/tokens 에서 Read 토큰을 만들고 https://huggingface.co/pyannote/speaker-diarization-community-1 에서 약관에 동의한 뒤, `setup.ps1 -HfToken <토큰>`을 사용자가 직접 실행하게 안내한다. 토큰은 비밀번호와 같으니 채팅에 붙여넣게 하지 않는다.
 
 ### 1. 입력 확인

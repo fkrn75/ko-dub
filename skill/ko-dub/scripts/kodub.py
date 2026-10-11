@@ -28,8 +28,10 @@ def find_toolkit():
 tk = find_toolkit()
 if not tk:
     sys.stderr.write(
-        "[오류] ko-dub 도구 폴더를 찾지 못했습니다. 도구 폴더(kodub.py, setup.ps1 등이 있는 폴더)를 가져온 뒤\n"
-        "  `setup.ps1 -InstallSkill`을 실행하거나, 환경변수 KO_DUB_HOME 을 그 폴더로 설정하세요.\n"
+        "[오류] ko-dub 도구 폴더를 찾지 못했습니다(이 PC에는 스킬 문서만 있음).\n"
+        f"  받기: git clone https://github.com/fkrn75/ko-dub \"{DEFAULT}\"   (git 이 없으면 같은 주소에서 ZIP 으로 받아 그 위치에 풀기)\n"
+        "  그 뒤 setup.ps1 로 환경을 설치합니다. 다른 위치에 두었으면 환경변수 KO_DUB_HOME 을 그 폴더로 설정하세요.\n"
+        "  ※ 도구가 없다고 edge-tts 등 다른 TTS 로 대신 만들지 마세요 — 화자분리·남녀 음성·Supertonic 이 빠진 결과가 됩니다.\n"
     )
     sys.exit(2)
 sys.exit(subprocess.call([sys.executable, str(tk / "kodub.py")] + sys.argv[1:]))

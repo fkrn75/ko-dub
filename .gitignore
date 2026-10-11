@@ -8,6 +8,7 @@ __pycache__/
 *.log
 *.bak*
 python_paths.json
+model_paths.json
 toolkit_path.txt
 CONTEXT-SAVE*.md
 *.mp4
