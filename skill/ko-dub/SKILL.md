@@ -63,7 +63,7 @@ git이 없으면 https://github.com/fkrn75/ko-dub 에서 ZIP으로 받아 `<홈 
 - 로컬 파일: `KODUB probe "<파일>"`로 소리가 있는 mp4 하나인지, 영상(소리 없음)+별도 오디오(weba 등)인지 구분한다. 별도 오디오면 8단계 합치기에서 `--orig-audio`를 쓴다.
 
 ### 2. 다운로드 (URL일 때)
-`KODUB download "<URL>" --out "<저장폴더>" --name "<안전한 파일명>" --work "<WORK>" --height 720 --detach` 후 `wait`. 제목의 `| ' :` 같은 문자가 파일명 문제를 일으키니 이름을 직접 정한다. 결과는 `<저장폴더>/<파일명>.mp4`. 봇 확인 오류가 나면 도구 폴더의 yt-dlp에 `--cookies-from-browser chrome`이 필요하니 사용자에게 알린다. 끝나면 `KODUB probe`로 높이·길이·오디오 유무를 확인한다.
+`KODUB download "<URL>" --out "<저장폴더>" --work "<WORK>" --height 720 --detach` 후 `wait`. **파일 이름은 기본으로 유튜브 제목**이다 — 도구가 파일 이름에 못 쓰는 문자만 정리한다(`|`·`:`·`/` → ` - `, `? * " < >`와 작은따옴표 제거, 150자 넘으면 단어 경계에서 자름). 예: "Artist's Guide to … 5.8 | Inside Unreal" → `Artists Guide to … 5.8 - Inside Unreal.mp4`. 시작할 때 `[저장 파일] <경로>` 줄이 나오니 이 경로를 다음 단계에 쓴다(`<WORK>/source.json`에 원래 제목·URL·경로가 남는다). `info`가 미리 "파일 이름(--name 생략 시)"을 보여 준다. 사용자가 이름을 따로 원할 때만 `--name "<파일명>"`(확장자 제외)을 준다. 봇 확인 오류가 나면 도구 폴더의 yt-dlp에 `--cookies-from-browser chrome`이 필요하니 사용자에게 알린다. 끝나면 `KODUB probe`로 높이·길이·오디오 유무를 확인한다.
 
 ### 3. 전사 + 화자분리 (GPU)
 `KODUB step1 "<영상 또는 오디오 파일>" --work "<WORK>" --prompt "<영상 주제와 고유명사 나열>" --detach` 후 `wait`. `--prompt`는 제목·설명에서 뽑은 제품명·사람 이름·약어를 넣으면 전사 정확도가 크게 오른다. 끝나면 로그 마지막에 화자별 발화 시간과 F0(음높이)가 나온다(faster-whisper large-v3 + pyannote community-1).
@@ -98,7 +98,7 @@ git이 없으면 https://github.com/fkrn75/ko-dub 에서 ZIP으로 받아 `<홈 
 **합성(CPU, 가장 오래 걸림)**: `KODUB synth "<WORK>" [--female-f0 160] --detach` 후 `wait`(또는 `status`). 중간에 죽거나 `ABORTED`면 같은 명령을 다시 실행한다(`tts_cache`로 이어하기). 한국어가 영어보다 길어 문장의 약 20~25%는 1.2배 넘게, 일부는 상한 1.45배까지 빨라진다 — 정상이며 보고에 숫자로 적는다. CPU 합성은 동시에 2개 돌리지 않는다(GPU 작업과는 동시에 돌려도 된다).
 
 ### 8. 합치기
-`KODUB mux --video "<영상>" --work "<WORK>" --out "<결과.mp4>" [--orig-audio "<별도 오디오>"] --detach` 후 `wait`. 소리 없는 영상+별도 오디오(weba)일 때만 `--orig-audio`를 준다.
+`KODUB mux --video "<영상>" --work "<WORK>" [--orig-audio "<별도 오디오>"] --detach` 후 `wait`. `--out`을 생략하면 원본 옆에 `<영상 이름> (KO dub).mp4`로 저장한다(유튜브에서 받은 영상이면 결과도 유튜브 제목 이름). 다른 이름·위치를 원할 때만 `--out "<결과.mp4>"`. 소리 없는 영상+별도 오디오(weba)일 때만 `--orig-audio`를 준다.
 - **워터마크(기본 켜짐)**: 문구 "개인 학습용 · 재배포 금지 / Personal study use only"를 작고 반투명하게, 시작 직후(최대 20초 지점)와 이후 `--wm-every 300`초마다 `--wm-dur 8`초씩 띄운다. 시청을 거의 방해하지 않는 수준이다.
   - 위치 `--wm-pos auto`(기본): 표시 구간마다 그 시점 화면을 보고 네 모서리 중 글자·로고·UI가 가장 적고 너무 밝지 않은 곳을 고른다(강연 영상은 화면 구성이 계속 바뀌어 한 모서리 고정이면 제목 배너·타이머와 겹쳤다). 고정하려면 `tr|tl|br|bl|tc|bc`. 고른 결과는 `<WORK>/watermark_plan.json`.
   - 용량: 원본 영상 비트레이트 수준(+10%)으로 다시 인코딩한다(화질 기준만 두면 원본의 2.3배가 됐다). 직접 정하려면 `--video-kbps 1500`.

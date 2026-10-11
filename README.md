@@ -64,16 +64,21 @@ powershell -ExecutionPolicy Bypass -File setup.ps1 -InstallMissing -DownloadMode
 
 ```powershell
 py -3 kodub.py check --net                       # 환경 점검
-py -3 kodub.py download "<URL>" --out D:\v --name talk --work D:\w\talk --height 720 --detach
-py -3 kodub.py step1 D:\v\talk.mp4 --work D:\w\talk --prompt "고유명사 나열" --detach
+py -3 kodub.py info "<URL>"                      # 제목·길이·용량·저장될 파일 이름 미리 보기
+py -3 kodub.py download "<URL>" --out D:\v --work D:\w\talk --height 720 --detach   # 파일 이름 = 유튜브 제목
+py -3 kodub.py step1 "D:\v\<유튜브 제목>.mp4" --work D:\w\talk --prompt "고유명사 나열" --detach
 py -3 kodub.py wait  D:\w\talk step1
 py -3 kodub.py speakers D:\w\talk                # 화자별 F0·성별 판정표
 py -3 kodub.py translate D:\w\talk --detach      # 구글 → 막히면 NLLB 자동
 py -3 kodub.py scan D:\w\talk                    # 번역 반복 오류 검사(필수)
 py -3 kodub.py dry D:\w\talk                     # 화자→음성 배정, 남은 영문 토큰
 py -3 kodub.py synth D:\w\talk --detach
-py -3 kodub.py mux --video D:\v\talk.mp4 --work D:\w\talk --out "D:\v\talk (KO dub).mp4" --detach
+py -3 kodub.py mux --video "D:\v\<유튜브 제목>.mp4" --work D:\w\talk --detach   # → "<유튜브 제목> (KO dub).mp4"
 ```
+
+파일 이름은 유튜브 제목에서 파일 이름에 못 쓰는 문자만 정리합니다(`|`·`:`·`/` → ` - `, `? * " < >`·작은따옴표 제거, 150자 제한).
+예: `Artist's Guide to Using MegaLights in Unreal Engine 5.8 | Inside Unreal` → `Artists Guide to Using MegaLights in Unreal Engine 5.8 - Inside Unreal.mp4`.
+다른 이름을 원하면 `download --name`, `mux --out` 으로 지정합니다.
 
 오래 걸리는 단계는 `--detach` 로 분리 실행하고 `status` / `wait` 로 확인합니다(종료코드 0 성공, 1 실패, 2 사용법·환경 오류, 3 실행 중).
 

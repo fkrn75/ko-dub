@@ -4,7 +4,7 @@
 #
 #   check [--net]                          환경 점검(없는 것·해결법 표)
 #   info <URL> [--height 720]              유튜브 제목·길이·예상 용량만 조회(다운로드 없음)
-#   download <URL> --out <폴더> --name <파일명> --work <작업폴더> [--height 720] [--detach]
+#   download <URL> --out <폴더> [--name <파일명>] --work <작업폴더> [--height 720] [--detach]   (--name 생략 시 유튜브 제목)
 #   probe <영상파일>                        스트림·길이·오디오 유무 요약
 #   step1 <입력> --work <작업폴더> [--prompt "용어 힌트"] [--detach]     전사+화자분리
 #   speakers <작업폴더> [--female-f0 150] [--formant SPEAKER_01,...]      화자별 F0·성별 판정표(+F1 보조)
@@ -12,7 +12,7 @@
 #   scan <작업폴더> [--apply fixes.json]   번역 반복 오류 검사/교정
 #   dry <작업폴더> [--female-f0 N]          발음 점검(남은 영문 토큰·화자→음성 배정)
 #   synth <작업폴더> [--female-f0 N] [--detach]                           음성 합성+타임라인 조립
-#   mux --video V --work W --out O [--orig-audio A] [--bg-vol 0.3] [--detach]   한국어 더빙 mp4 만들기
+#   mux --video V --work W [--out O] [--orig-audio A] [--bg-vol 0.3] [--detach]   한국어 더빙 mp4 만들기
 #   verify <작업폴더> [--n 12] [--ids 5,120]                              되받아쓰기 유사도 검증
 #   glossary add "Isaac Sim=아이작 심" ...  용어집 추가 (--fix 면 번역 교정 사전) / glossary show [--grep 단어]
 #   report <작업폴더>                       최종 보고용 통계(밀림·배속·음성 배정)
@@ -243,11 +243,39 @@ def yt():
     return c
 
 
+WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+
+
+def safe_filename(title, limit=150):
+    """유튜브 제목 → Windows·macOS·Linux 모두에서 쓸 수 있는 파일 이름(확장자 제외).
+    '|'·':'·'/' 는 ' - ' 로, '? * " < >' 와 작은따옴표(셸 인용을 깨뜨림)·제어문자는 지운다. 한글 등 유니코드는 그대로 둔다."""
+    s = re.sub(r"\s*[|:/\\]+\s*", " - ", title)
+    s = re.sub(r"[?*\"<>'\x00-\x1f]", "", s)
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"( - )+", " - ", s).strip(" .-")
+    if len(s) > limit:  # 긴 제목은 단어 경계에서 자른다(전체 경로 길이 제한 대비)
+        s = s[:limit].rsplit(" ", 1)[0].strip(" .-")
+    if not s or s.split(".")[0].upper() in WIN_RESERVED:
+        s = f"video_{s}" if s else "video"
+    return s
+
+
+def yt_title(url):
+    p = subprocess.run(yt() + ["--no-playlist", "--skip-download", "--print", "%(title)s", url], capture_output=True, text=True, encoding="utf-8", errors="replace", env=base_env())
+    t = next((l.strip() for l in p.stdout.splitlines() if l.strip()), "")
+    if not t:
+        die("유튜브 제목을 가져오지 못했습니다. --name 으로 파일 이름을 직접 정하세요. " + p.stderr.strip()[-300:])
+    return t
+
+
 def cmd_info(a):
     fmt = f"bv*[height<={a.height}]+ba/b[height<={a.height}]"
-    p = subprocess.run(yt() + ["-f", fmt, "--no-playlist", "--print", "%(title)s | %(duration_string)s | %(channel)s | 예상용량 %(filesize_approx)s B | %(resolution)s", a.url], capture_output=True, text=True, encoding="utf-8", errors="replace", env=base_env())
+    # 제목은 따로 한 줄로 받는다(제목 안에 '|' 가 있으면 요약 줄을 나눌 수 없음)
+    p = subprocess.run(yt() + ["-f", fmt, "--no-playlist", "--print", "%(title)s", "--print", "%(title)s | %(duration_string)s | %(channel)s | 예상용량 %(filesize_approx)s B | %(resolution)s", a.url], capture_output=True, text=True, encoding="utf-8", errors="replace", env=base_env())
     out = [l for l in p.stdout.splitlines() if l.strip()]
-    print("\n".join(out) if out else (p.stderr.strip()[-400:]))
+    print("\n".join(out[1:]) if len(out) > 1 else (p.stderr.strip()[-400:]))
+    if len(out) > 1:
+        print(f"파일 이름(--name 생략 시): {safe_filename(out[0])}.mp4")
     return p.returncode
 
 
@@ -256,6 +284,15 @@ def cmd_download(a):
     fmt = f"bv*[height<={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]"
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    title = None
+    if not a.name:  # 파일 이름 = 유튜브 제목(파일 이름에 못 쓰는 문자만 정리)
+        title = yt_title(a.url)
+        a.name = safe_filename(title)
+    dest = out / (a.name + ".mp4")
+    Path(a.work).mkdir(parents=True, exist_ok=True)
+    # 다음 단계(mux 기본 출력 이름 등)와 사용자가 참고하도록 원래 제목·저장 경로를 남긴다
+    (Path(a.work) / "source.json").write_text(json.dumps({"url": a.url, "title": title, "file": str(dest)}, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"[저장 파일] {dest}" + (f"  (유튜브 제목: {title})" if title else ""))
     cmd = yt() + ["--no-playlist", "-f", fmt, "--merge-output-format", "mp4", "-o", str(out / (a.name + ".%(ext)s")), a.url]
     return launch("download", cmd, a.work, detach=a.detach)
 
@@ -494,7 +531,9 @@ def cmd_mux(a):
     ff = check_env.find_exe("ffmpeg")
     if not ff:
         die("ffmpeg 를 찾을 수 없습니다.")
-    work, out = Path(a.work), Path(a.out)
+    work = Path(a.work)
+    # --out 생략 시: 원본 영상과 같은 폴더에 "<영상 이름> (KO dub).mp4" (유튜브에서 받았으면 영상 이름 = 유튜브 제목)
+    out = Path(a.out) if a.out else Path(a.video).with_name(Path(a.video).stem + " (KO dub).mp4")
     dub = work / "dub_ko.wav"
     if not dub.exists():
         die("dub_ko.wav 가 없습니다(synth 가 끝났는지 `status` 로 확인).")
@@ -654,7 +693,7 @@ def main():
 
     P("check", cmd_check).add_argument("--net", action="store_true")
     p = P("info", cmd_info); p.add_argument("url"); p.add_argument("--height", type=int, default=720)
-    p = P("download", cmd_download); p.add_argument("url"); p.add_argument("--out", required=True); p.add_argument("--name", required=True); p.add_argument("--work", required=True); p.add_argument("--height", type=int, default=720); p.add_argument("--detach", action="store_true")
+    p = P("download", cmd_download); p.add_argument("url"); p.add_argument("--out", required=True); p.add_argument("--name", help="파일 이름(확장자 제외). 생략하면 유튜브 제목"); p.add_argument("--work", required=True); p.add_argument("--height", type=int, default=720); p.add_argument("--detach", action="store_true")
     p = P("probe", cmd_probe); p.add_argument("file")
     p = P("step1", cmd_step1); p.add_argument("input"); p.add_argument("--work", required=True); p.add_argument("--prompt"); p.add_argument("--detach", action="store_true")
     p = P("speakers", cmd_speakers); p.add_argument("work"); p.add_argument("--female-f0", type=float, default=150.0); p.add_argument("--formant")
@@ -662,7 +701,7 @@ def main():
     p = P("scan", cmd_scan); p.add_argument("work"); p.add_argument("--apply")
     p = P("dry", cmd_dry); p.add_argument("work"); p.add_argument("--female-f0")
     p = P("synth", cmd_synth); p.add_argument("work"); p.add_argument("--female-f0"); p.add_argument("--detach", action="store_true")
-    p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", required=True); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font"); p.add_argument("--wm-pos", choices=["auto"] + list(WM_POS), default="auto", help="워터마크 위치(auto=화면이 가장 단순한 모서리 자동 선택)"); p.add_argument("--video-kbps", type=int, help="재인코딩 영상 비트레이트(기본: 원본과 같은 수준)")
+    p = P("mux", cmd_mux); p.add_argument("--video", required=True); p.add_argument("--work", required=True); p.add_argument("--out", help="결과 파일. 생략하면 원본 옆에 \"<영상 이름> (KO dub).mp4\""); p.add_argument("--orig-audio"); p.add_argument("--bg-vol", type=float, default=0.30); p.add_argument("--detach", action="store_true"); p.add_argument("--watermark", default=WM_TEXT, help="워터마크 문구"); p.add_argument("--no-watermark", action="store_true", help="워터마크 없이 영상 복사(빠름)"); p.add_argument("--wm-every", type=int, default=300, help="표시 주기(초)"); p.add_argument("--wm-dur", type=int, default=8, help="1회 표시 길이(초)"); p.add_argument("--wm-font"); p.add_argument("--wm-pos", choices=["auto"] + list(WM_POS), default="auto", help="워터마크 위치(auto=화면이 가장 단순한 모서리 자동 선택)"); p.add_argument("--video-kbps", type=int, help="재인코딩 영상 비트레이트(기본: 원본과 같은 수준)")
     p = P("verify", cmd_verify); p.add_argument("work"); p.add_argument("--n", type=int, default=12); p.add_argument("--ids")
     p = P("glossary", cmd_glossary); p.add_argument("action", choices=["add", "show"]); p.add_argument("items", nargs="*", help="add 일 때 '영문=한글 발음' 또는(--fix) '오역=바른 표현'"); p.add_argument("--fix", action="store_true", help="번역 교정 사전(ko_fixes.json) 대상"); p.add_argument("--term", action="store_true", help="전문용어 고정 사전(terms.json, 번역 전 적용) 대상"); p.add_argument("--grep")
     p = P("models", cmd_models); p.add_argument("--nllb", action="store_true", help="NLLB 번역 모델(약 5GB)도 받는다"); p.add_argument("--supertonic-dir", help="이미 받아 둔 Supertonic v3 폴더를 등록(다운로드 생략)")
