@@ -214,7 +214,12 @@ def main():
                 txt = md.read_text(encoding="utf-8-sig", errors="replace")[:4000].lower()
             except OSError:
                 continue
-            if any(k in txt for k in ("더빙", "dubbing", " dub", "edge-tts", "edge_tts", "argos")):
+            # 영상 번역 더빙 스킬만 잡는다: 예전 방식 흔적(edge-tts·Argos·dub.py)이 있거나, '더빙'과 '번역/영어'가 함께 있을 때
+            # ('더빙'만 있는 스킬은 오탐 — 예: 설명 영상에 내레이션을 넣는 eli5-video)
+            legacy = any(k in txt for k in ("edge-tts", "edge_tts", "argos", "dub.py", "deep-translator", "deep_translator"))
+            dubbing = any(k in txt for k in ("더빙", "dubbing", " dub "))
+            translating = any(k in txt for k in ("번역", "translat", "영어 영상", "english video"))
+            if legacy or (dubbing and translating):
                 others.append(str(sk))
     add("권장", "다른 더빙 스킬 없음(충돌 방지)", "OK" if not others else "WARN", "없음" if not others else ", ".join(others),
         "" if not others else "에이전트가 이 스킬을 대신 고를 수 있습니다(edge-tts·Argos 등 다른 방식으로 더빙). 쓰지 않는 스킬이면 폴더 이름을 바꾸거나 다른 곳으로 옮겨 비활성화하고, 요청할 때 `$ko-dub`처럼 스킬 이름을 명시하세요")
